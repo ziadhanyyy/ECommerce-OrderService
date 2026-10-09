@@ -42,76 +42,69 @@ namespace OrderService.BLL.Services
 
         public async Task<OrderResponse?> AddOrder(OrderAddRequest order)
         {
-            if (order== null)
-            {
+            if (order == null)
                 throw new ArgumentNullException(nameof(order));
-            }
-            ValidationResult orderAddRequestValidationResult = await _orderAddRequestValidator.ValidateAsync(order);
-            if (!orderAddRequestValidationResult.IsValid)
+
+            ValidationResult orderValidation = await _orderAddRequestValidator.ValidateAsync(order);
+            if (!orderValidation.IsValid)
             {
-                string errors = string.Join(", ", orderAddRequestValidationResult.Errors.Select(temp => temp.ErrorMessage));
+                string errors = string.Join(", ", orderValidation.Errors.Select(e => e.ErrorMessage));
                 throw new ArgumentException(errors);
             }
 
-            List<ProductDto?> products = new List<ProductDto?>();
-            foreach (OrderItemAddRequest orderItemAddRequest in order.items)
-            {
-                ValidationResult orderItemAddRequestValidationResult = await _orderItemAddRequestValidator.ValidateAsync(orderItemAddRequest);
+            // Dictionary for fast lookup by product id
+            var products = new Dictionary<Guid, ProductDto>();
 
-                if (!orderItemAddRequestValidationResult.IsValid)
+            foreach (OrderItemAddRequest item in order.items)
+            {
+                ValidationResult itemValidation = await _orderItemAddRequestValidator.ValidateAsync(item);
+                if (!itemValidation.IsValid)
                 {
-                    string errors = string.Join(", ", orderItemAddRequestValidationResult.Errors.Select(temp => temp.ErrorMessage));
+                    string errors = string.Join(", ", itemValidation.Errors.Select(e => e.ErrorMessage));
                     throw new ArgumentException(errors);
                 }
 
-                ProductDto? product = await _productsMicroserviceClient.GetProductById(orderItemAddRequest.ProductID);
-                if (product == null)
-                {
-                    throw new ArgumentException("Invalid Product ID");
-                }
+                // Avoid calling the microservice twice for the same product
+                if (products.ContainsKey(item.ProductID))
+                    continue;
 
-                products.Add(product);
+                ProductDto? product = await _productsMicroserviceClient.GetProductById(item.ProductID);
+                if (product == null)
+                    throw new ArgumentException($"Invalid Product ID: {item.ProductID}");
+
+                products[item.ProductID] = product;
             }
+
             UserDTO? user = await _usersMicroserviceClient.GetUserById(order.userid);
             if (user == null)
-            {
                 throw new ArgumentException("Invalid User ID");
-            }
-            Order orderInput = _mapper.Map<Order>(order); 
+
+            Order orderInput = _mapper.Map<Order>(order);
+
             foreach (OrderItem orderItem in orderInput.Items)
             {
+                // Take the price from the product service, NOT from the client
+                orderItem.UnitPrice = products[orderItem.ProductId].price;
                 orderItem.TotalPrice = orderItem.Quantity * orderItem.UnitPrice;
             }
-            orderInput.Total = orderInput.Items.Sum(temp => temp.TotalPrice);
+
+            orderInput.Total = orderInput.Items.Sum(i => i.TotalPrice);
 
             Order? addedOrder = await _orderRepository.AddOrderAsync(orderInput);
-
             if (addedOrder == null)
-            {
                 return null;
-            }
 
-            OrderResponse addedOrderResponse = _mapper.Map<OrderResponse>(addedOrder); 
-            if (addedOrderResponse != null)
+            OrderResponse addedOrderResponse = _mapper.Map<OrderResponse>(addedOrder);
+
+            foreach (OrderItemResponse itemResponse in addedOrderResponse.OrderItems)
             {
-                foreach (OrderItemResponse orderItemResponse in addedOrderResponse.OrderItems)
+                if (products.TryGetValue(itemResponse.ProductID, out ProductDto? productDto))
                 {
-                    ProductDto? productDTO = products.Where(temp => temp.id == orderItemResponse.ProductID).FirstOrDefault();
-
-                    if (productDTO == null)
-                        continue;
-
-                    _mapper.Map<ProductDto, OrderItemResponse>(productDTO, orderItemResponse);
+                    _mapper.Map(productDto, itemResponse);
                 }
             }
 
-            if (addedOrderResponse != null)
-            {
-                if (user != null)
-                {
-                    _mapper.Map<UserDTO, OrderResponse>(user, addedOrderResponse);
-                }
-            }
+            _mapper.Map(user, addedOrderResponse);
 
             return addedOrderResponse;
         }
@@ -223,9 +216,8 @@ namespace OrderService.BLL.Services
             return orderResponses.ToList();
         }
 
-        public async  Task<OrderResponse?> UpdateOrder(OrderUpdateRequest order)
+        public async Task<OrderResponse?> UpdateOrder(OrderUpdateRequest order)
         {
-         
             if (order == null)
             {
                 throw new ArgumentNullException(nameof(order));
@@ -238,7 +230,7 @@ namespace OrderService.BLL.Services
                 throw new ArgumentException(errors);
             }
 
-            List<ProductDto> products = new List<ProductDto>();
+            Dictionary<Guid, ProductDto> products = new Dictionary<Guid, ProductDto>();
 
             foreach (OrderItemUpdateRequest orderItemUpdateRequest in order.OrderItems)
             {
@@ -250,14 +242,13 @@ namespace OrderService.BLL.Services
                     throw new ArgumentException(errors);
                 }
 
-
                 ProductDto? product = await _productsMicroserviceClient.GetProductById(orderItemUpdateRequest.ProductID);
                 if (product == null)
                 {
                     throw new ArgumentException("Invalid Product ID");
                 }
 
-                products.Add(product);
+                products[orderItemUpdateRequest.ProductID] = product;
             }
 
             UserDTO? user = await _usersMicroserviceClient.GetUserById(order.UserID);
@@ -266,14 +257,14 @@ namespace OrderService.BLL.Services
                 throw new ArgumentException("Invalid User ID");
             }
 
-            Order orderInput = _mapper.Map<Order>(order); 
+            Order orderInput = _mapper.Map<Order>(order);
 
             foreach (OrderItem orderItem in orderInput.Items)
             {
+                orderItem.UnitPrice = products[orderItem.ProductId].price;
                 orderItem.TotalPrice = orderItem.Quantity * orderItem.UnitPrice;
             }
             orderInput.Total = orderInput.Items.Sum(temp => temp.TotalPrice);
-
 
             Order? updatedOrder = await _orderRepository.UpdateOrderAsync(orderInput);
 
@@ -282,13 +273,13 @@ namespace OrderService.BLL.Services
                 return null;
             }
 
-            OrderResponse updatedOrderResponse = _mapper.Map<OrderResponse>(updatedOrder); 
+            OrderResponse updatedOrderResponse = _mapper.Map<OrderResponse>(updatedOrder);
 
             if (updatedOrderResponse != null)
             {
                 foreach (OrderItemResponse orderItemResponse in updatedOrderResponse.OrderItems)
                 {
-                    ProductDto? productDTO = products.Where(temp => temp.id == orderItemResponse.ProductID).FirstOrDefault();
+                    products.TryGetValue(orderItemResponse.ProductID, out ProductDto? productDTO);
 
                     if (productDTO == null)
                         continue;

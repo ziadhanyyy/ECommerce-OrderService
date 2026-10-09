@@ -11,10 +11,13 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+	  <PackageReference Include="AutoMapper" Version="16.2.0" />
+	  <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Controllers\" />
+    <ProjectReference Include="..\OrderService.BLL\OrderService.BLL.csproj" />
+    <ProjectReference Include="..\OrderService.Data\OrderService.Data.csproj" />
   </ItemGroup>
 
 </Project>

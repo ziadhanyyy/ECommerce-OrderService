@@ -6,9 +6,9 @@ using System.Threading.Tasks;
 
 namespace OrderService.BLL.DTO
 {
-    public record OrderItemAddRequest(Guid ProductID, decimal UnitPrice, int Quantity)
+    public record OrderItemAddRequest(Guid ProductID, int Quantity)
     {
-        public OrderItemAddRequest() : this(default, default, default)
+        public OrderItemAddRequest() : this(default, default)
         {
         }
     }
