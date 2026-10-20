@@ -1,18 +1,30 @@
 ﻿
+using Microsoft.Extensions.Caching.Distributed;
 using OrderService.BLL.DTO;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace OrderService.BLL.HttpClients
 {
     public class ProductsMicroserviceClient
     {
         private readonly HttpClient _httpClient;
-        public ProductsMicroserviceClient(HttpClient httpClient)
+        private readonly IDistributedCache _distributedCache;
+        public ProductsMicroserviceClient(HttpClient httpClient, IDistributedCache distributedCache)
         {
             _httpClient = httpClient;
+            _distributedCache = distributedCache;
         }
         public async Task<ProductDto?> GetProductById(Guid id)
         {
+            string cacheKey = $"product:{id}";
+            string? cachedUser = await _distributedCache.GetStringAsync(cacheKey);
+            if (cachedUser != null)
+            {
+                ProductDto? productFromCache = JsonSerializer.Deserialize<ProductDto?>(cachedUser);
+                return productFromCache;
+
+            }
             HttpResponseMessage response = await _httpClient.GetAsync($"/api/Product/{id}");
             if (!response.IsSuccessStatusCode)
             {
